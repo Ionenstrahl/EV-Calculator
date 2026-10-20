@@ -3,7 +3,7 @@
 
   const $ = (id) => document.getElementById(id);
   const STORAGE_KEY = "mtga-ev-settings";
-  const COLORS = ["#2a78d6", "#d9822b", "#8a5cd1", "#1f9e74"];
+  const COLORS = ["#2a78d6", "#d9822b", "#8a5cd1", "#1f9e74", "#c2417a", "#9a7b1c"];
 
   // --- Probability -----------------------------------------------------------
 
@@ -47,18 +47,35 @@
 
   // --- Valuation -------------------------------------------------------------
 
-  function evaluate(ev, p, euroPerGem, boxEuro) {
+  // prices = { euroPerGem, boxEuro, euroPerUsd }
+  function rewardEuro(r, p, prices) {
+    return (r.gems || 0) * prices.euroPerGem + (r.boxes || 0) * prices.boxEuro +
+      (r.usd || 0) * prices.euroPerUsd + (r.next ? evaluate(r.next, p, prices).returnEuro : 0);
+  }
+
+  function evaluate(ev, p, prices) {
     const dist = distributionFor(ev, p);
-    let gems = 0, boxes = 0;
+    let gems = 0, returnEuro = 0;
     dist.forEach((prob, k) => {
       const r = ev.rewards[k] || {};
       gems += prob * (r.gems || 0);
-      boxes += prob * (r.boxes || 0);
+      returnEuro += prob * rewardEuro(r, p, prices);
     });
-    const entryEuro = ev.entryGems * euroPerGem;
-    const returnEuro = gems * euroPerGem + boxes * boxEuro;
-    return { dist, gems, boxes, entryEuro, returnEuro, net: returnEuro - entryEuro };
+    const entryEuro = (ev.entryGems || 0) * prices.euroPerGem;
+    return { dist, gems, entryEuro, returnEuro, net: returnEuro - entryEuro };
   }
+
+  // P(winning the top prize), following follow-up stages (e.g. ALC Qualifier Draft 2)
+  function trophyProb(ev, p, dist = distributionFor(ev, p)) {
+    return dist.reduce((sum, prob, k) => {
+      const r = ev.rewards[k] || {};
+      if (r.next) return sum + prob * trophyProb(r.next, p);
+      return sum + (k === dist.length - 1 ? prob : 0);
+    }, 0);
+  }
+
+  // events whose rewards are gems only can show their EV in gems
+  const gemsOnly = (ev) => ev.rewards.every((r) => !r.boxes && !r.usd && !r.next);
 
   // --- Formatting ------------------------------------------------------------
 
@@ -76,10 +93,13 @@
     return `1 in ${every} events`;
   }
 
-  function rewardLabel(r) {
+  function rewardLabel(r, p, prices) {
     const parts = [];
     if (r.gems) parts.push(int.format(r.gems) + " gems");
     if (r.boxes) parts.push(r.boxes + (r.boxes === 1 ? " box" : " boxes"));
+    if (r.usd) parts.push("$" + int.format(r.usd));
+    if (r.invite) parts.push("ALC invite");
+    if (r.next) parts.push(`${r.next.name} (≈ ${eur.format(evaluate(r.next, p, prices).returnEuro)})`);
     return parts.length ? parts.join(" + ") : "–";
   }
 
@@ -93,6 +113,7 @@
       winrate: winratePct / 100,
       euroPerGem: (parseFloat($("gemprice").value) || 0) / 10000,
       boxEuro: parseFloat($("boxprice").value) || 0,
+      euroPerUsd: parseFloat($("usdrate").value) || 0,
     };
   }
 
@@ -103,6 +124,7 @@
       if (s.winrate != null) setWinrate(parseFloat(s.winrate));
       if (s.gemprice != null) $("gemprice").value = s.gemprice;
       if (s.boxprice != null) $("boxprice").value = s.boxprice;
+      if (s.usdrate != null) $("usdrate").value = s.usdrate;
       if (Array.isArray(s.hidden)) s.hidden.forEach((id) => hidden.add(id));
     } catch (e) { /* storage unavailable */ }
   }
@@ -111,7 +133,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         winrate: winratePct, gemprice: $("gemprice").value, boxprice: $("boxprice").value,
-        hidden: [...hidden],
+        usdrate: $("usdrate").value, hidden: [...hidden],
       }));
     } catch (e) { /* storage unavailable */ }
   }
@@ -121,18 +143,25 @@
   function renderCards(s) {
     $("cards").innerHTML = window.EVENTS.map((ev, i) => {
       if (hidden.has(ev.id)) return "";
-      const r = evaluate(ev, s.winrate, s.euroPerGem, s.boxEuro);
+      const r = evaluate(ev, s.winrate, s);
       const rows = r.dist.map((prob, k) => `
-        <tr><td>${k}</td><td>${pct(prob)}</td><td>${rewardLabel(ev.rewards[k] || {})}</td></tr>`).join("");
+        <tr><td>${k}</td><td>${pct(prob)}</td><td>${rewardLabel(ev.rewards[k] || {}, s.winrate, s)}</td></tr>`).join("");
+      const probWhere = (pred) => r.dist.reduce((sum, prob, k) => sum + (pred(ev.rewards[k] || {}) ? prob : 0), 0);
       return `
         <article class="card" style="--accent:${COLORS[i % COLORS.length]}">
           <h2>${ev.name}</h2>
           <p class="note">${ev.note}</p>
-          <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>          <dl>
-            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>            ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}            ${ev.rewards.some((x) => x.boxes) ? "" : `<dt>EV in gems</dt><dd>${signedGems(r.gems - ev.entryGems)}</dd>`}
-            <dt>Trophy chance</dt><dd>${trophyLabel(r.dist[r.dist.length - 1])}</dd>
-            ${ev.rewards.some((x) => x.boxes) ? `<dt>Box chance</dt><dd>${trophyLabel(
-              r.dist.reduce((sum, prob, k) => sum + ((ev.rewards[k] || {}).boxes ? prob : 0), 0))}</dd>` : ""}          </dl>
+          <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>
+          <dl>
+            ${ev.entryLabel ? `<dt>Entry</dt><dd>${ev.entryLabel}</dd>` : `
+            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>
+            <dt>Gold entry</dt><dd>${ev.entryGold ? int.format(ev.entryGold) + " gold" : "gems only"}</dd>`}
+            ${gemsOnly(ev) ? `<dt>EV in gems</dt><dd>${signedGems(r.gems - ev.entryGems)}</dd>` : ""}
+            ${ev.rewards.some((x) => x.next) ? `<dt>${ev.advanceLabel || "Advance chance"}</dt><dd>${trophyLabel(probWhere((x) => x.next))}</dd>` : ""}
+            <dt>Trophy chance</dt><dd>${trophyLabel(trophyProb(ev, s.winrate, r.dist))}</dd>
+            ${ev.rewards.some((x) => x.invite) ? `<dt>Invite chance</dt><dd>${trophyLabel(probWhere((x) => x.invite))}</dd>` : ""}
+            ${ev.rewards.some((x) => x.boxes) ? `<dt>Box chance</dt><dd>${trophyLabel(probWhere((x) => x.boxes))}</dd>` : ""}
+          </dl>
           <details>
             <summary>Win distribution</summary>
             <table><thead><tr><th>Wins</th><th>P</th><th>Reward</th></tr></thead><tbody>${rows}</tbody></table>
@@ -152,7 +181,7 @@
 
     // series[i] is null for hidden events so colours stay tied to the event index
     const series = window.EVENTS.map((ev) => hidden.has(ev.id) ? null :
-      xs.map((x) => evaluate(ev, x, s.euroPerGem, s.boxEuro).net));
+      xs.map((x) => evaluate(ev, x, s).net));
     const all = series.filter(Boolean).flat();
     let yMin = Math.min(0, ...all), yMax = Math.max(0, ...all);
     if (yMax - yMin < 1) { yMin -= 1; yMax += 1; }
@@ -180,7 +209,7 @@
     }).join("");
 
     // break-even: ring on the zero line plus a dashed drop line to the x-axis
-    const breakEvens = window.EVENTS.map((ev) => breakEven(ev, s.euroPerGem, s.boxEuro));
+    const breakEvens = window.EVENTS.map((ev) => breakEven(ev, s));
     const beMarks = breakEvens.map((be, i) => {
       if (!series[i] || be == null || be < xMin || be > xMax) return "";
       const c = COLORS[i % COLORS.length], bx = sx(be);
@@ -191,7 +220,7 @@
     const cx = sx(s.winrate);
     const dots = window.EVENTS.map((ev, i) => {
       if (!series[i]) return "";
-      const y = evaluate(ev, s.winrate, s.euroPerGem, s.boxEuro).net;
+      const y = evaluate(ev, s.winrate, s).net;
       return `<circle cx="${cx}" cy="${sy(y)}" r="4.5" fill="${COLORS[i % COLORS.length]}" class="dot"/>`;
     }).join("");
 
@@ -212,8 +241,8 @@
 
   // Game win rate at which net EV = 0, or null if the event is never profitable.
   // Net EV rises with win rate (rewards never shrink with more wins), so bisection works.
-  function breakEven(ev, euroPerGem, boxEuro) {
-    const net = (p) => evaluate(ev, p, euroPerGem, boxEuro).net;
+  function breakEven(ev, prices) {
+    const net = (p) => evaluate(ev, p, prices).net;
     let lo = 0, hi = 1;
     if (net(hi) < 0) return null;
     if (net(lo) >= 0) return 0;
@@ -224,7 +253,7 @@
     return hi;
   }
 
-  const breakEvenLabel = (be) => (be == null ? "never" : pct(be));
+  const breakEvenLabel = (be) => (be == null ? "never" : be === 0 ? "always" : pct(be));
 
   function niceStep(raw) {
     const mag = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -283,7 +312,7 @@
   });
 
   loadSettings();
-  ["gemprice", "boxprice"].forEach((id) => $(id).addEventListener("input", render));
+  ["gemprice", "boxprice", "usdrate"].forEach((id) => $(id).addEventListener("input", render));
   render();
 
   // exposed for console sanity checks
