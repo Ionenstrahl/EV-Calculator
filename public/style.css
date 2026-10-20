@@ -105,6 +105,10 @@ details summary { cursor: pointer; font-size: 0.9rem; color: var(--accent-ui); }
 table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 th, td { padding: 3px 4px; text-align: left; border-bottom: 1px solid var(--border); }
 th:nth-child(2), td:nth-child(2) { text-align: right; padding-right: 12px; }
+.calc { margin: 8px 0; padding-left: 1.3em; font-size: 0.8rem; color: var(--muted); }
+.calc li { margin-bottom: 4px; }
+.calc b { color: var(--text); }
+.calc-table tfoot td { font-weight: 600; border-bottom: 0; }
 .src { margin: 10px 0 0; font-size: 0.8rem; }
 
 .chart-wrap {

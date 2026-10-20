@@ -156,8 +156,6 @@
     $("cards").innerHTML = window.EVENTS.map((ev, i) => {
       if (hidden.has(ev.id)) return "";
       const r = evaluate(ev, s.winrate, s);
-      const rows = r.dist.map((prob, k) => `
-        <tr><td>${k}</td><td>${pct(prob)}</td><td>${rewardLabel(ev.rewards[k] || {}, s.winrate, s)}</td></tr>`).join("");
       const probWhere = (pred) => r.dist.reduce((sum, prob, k) => sum + (pred(ev.rewards[k] || {}) ? prob : 0), 0);
       return `
         <article class="card" style="--accent:${COLORS[i % COLORS.length]}">
@@ -185,13 +183,80 @@
             ${ev.rewards.some((x) => x.boxes) ? `<dt>Box chance</dt><dd>${trophyLabel(probWhere((x) => x.boxes))}</dd>` : ""}
           </dl>
           <details>
-            <summary>Win distribution</summary>
-            <table><thead><tr><th>Wins</th><th>P</th><th>Reward</th></tr></thead><tbody>${rows}</tbody></table>
+            <summary>Calculation</summary>
+            ${calculationHtml(ev, r, s)}
           </details>
           ${ev.payToggle && payGold.has(ev.id) ? `<p class="src">Gold valued at the Premier Draft rate (${GOLD_PER_GEM.toFixed(2).replace(".", ",")} gold per gem).</p>` : ""}
           <p class="src"><a href="${ev.source}" target="_blank" rel="noopener">Source</a> · ${ev.updated}</p>
         </article>`;
     }).join("");
+  }
+
+  const num = (x, d = 2) => x.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  // step-by-step derivation of the card's numbers at the current settings
+  function calculationHtml(ev, r, s) {
+    const p = s.winrate;
+    const q = ev.format === "bo3" ? bo3MatchRate(p) : p;
+    const steps = [];
+
+    steps.push(ev.format === "bo3"
+      ? `Match win rate q = p²·(3 − 2p) = ${num(p, 3)}²·(3 − 2·${num(p, 3)}) = <b>${pct(q)}</b> (Bo3: win 2 games before losing 2)`
+      : `Match win rate q = game win rate p = <b>${pct(q)}</b> (Bo1)`);
+
+    steps.push(ev.fixedMatches
+      ? `Always ${ev.fixedMatches} matches, so P(k wins) = C(${ev.fixedMatches}, k)·q<sup>k</sup>·(1 − q)<sup>${ev.fixedMatches} − k</sup>.`
+      : `Play until ${ev.maxWins} wins or ${ev.maxLosses} losses. For k &lt; ${ev.maxWins}, the run ends on loss no. ${ev.maxLosses}:
+         P(k) = C(k + ${ev.maxLosses - 1}, k)·q<sup>k</sup>·(1 − q)<sup>${ev.maxLosses}</sup>.
+         P(${ev.maxWins}) = Σ<sub>l=0..${ev.maxLosses - 1}</sub> C(${ev.maxWins - 1} + l, l)·q<sup>${ev.maxWins}</sup>·(1 − q)<sup>l</sup> (last match is the ${ev.maxWins}th win).`);
+
+    const values = [`gems × ${num(s.euroPerGem * 10000)} € / 10.000`];
+    if (ev.rewards.some((x) => x.boxes)) values.push(`boxes × ${eur.format(s.boxEuro)}`);
+    if (ev.rewards.some((x) => x.usd)) values.push(`$ × ${num(parseFloat(cash.usdRate) || 0)} €/$ × (1 − ${cash.taxPct} % tax) = $ × ${num(s.euroPerUsd, 3)} €`);
+    if (ev.rewards.some((x) => x.next)) values.push(`token = expected return of the next stage at your win rate`);
+    steps.push(`Reward value: ${values.join(" · ")}`);
+
+    const rows = r.dist.map((prob, k) => {
+      const rw = ev.rewards[k] || {};
+      return `<tr><td>${k}</td><td>${pct(prob, 2)}</td><td>${rewardLabel(rw, p, s)}</td></tr>`;
+    }).join("");
+
+    const entryText = ev.entryLabel
+      ? `Entry: ${ev.entryLabel} = 0 €`
+      : payGold.has(ev.id)
+        ? `Entry: ${int.format(ev.entryGold)} gold ÷ ${num(GOLD_PER_GEM)} gold/gem (Premier Draft rate) = ${int.format(ev.entryGold / GOLD_PER_GEM)} gems × ${num(s.euroPerGem * 10000)} € / 10.000 = ${eur.format(r.entryEuro)}`
+        : `Entry: ${int.format(ev.entryGems)} gems × ${num(s.euroPerGem * 10000)} € / 10.000 = ${eur.format(r.entryEuro)}`;
+
+    // "1 in N events" rows: N = 1 / P
+    const oneIn = (prob) => `${pct(prob, 2)} → 1 in 1 / P = ${num(1 / prob, 1)} events`;
+    const chanceLine = (label, pred) => {
+      const ks = r.dist.map((_, k) => k).filter((k) => pred(ev.rewards[k] || {}));
+      if (!ks.length) return "";
+      const prob = ks.reduce((sum, k) => sum + r.dist[k], 0);
+      return `<li>${label} = ${ks.map((k) => `P(${k})`).join(" + ")} = ${oneIn(prob)}</li>`;
+    };
+    const trophy = trophyProb(ev, p, r.dist);
+    const nextKs = r.dist.map((_, k) => k).filter((k) => (ev.rewards[k] || {}).next);
+    const trophyText = nextKs.length
+      ? `Trophy chance = ${nextKs.map((k) => `P(${k}) × P(trophy in ${ev.rewards[k].next.name}) = ${pct(r.dist[k], 2)} × ${pct(trophyProb(ev.rewards[k].next, p), 2)}`).join(" + ")} = ${oneIn(trophy)}`
+      : `Trophy chance = P(${r.dist.length - 1}) = ${oneIn(trophy)}`;
+
+    return `
+      <ol class="calc">${steps.map((x) => `<li>${x}</li>`).join("")}</ol>
+      <table class="calc-table">
+        <thead><tr><th>Wins</th><th>P</th><th>Reward</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="2">Expected return</td><td>Σ P × reward value = ${eur.format(r.returnEuro)}</td></tr></tfoot>
+      </table>
+      <ol class="calc" start="${steps.length + 1}">
+        <li>${entryText}</li>
+        <li>Net EV = ${eur.format(r.returnEuro)} − ${eur.format(r.entryEuro)} = <b>${signedEur(r.net)}</b></li>
+        ${gemsOnly(ev) ? `<li>EV in gems = Σ P × gems − entry = ${int.format(r.gems)} − ${int.format(ev.entryGems)} = ${signedGems(r.gems - ev.entryGems)}</li>` : ""}
+        ${chanceLine(ev.advanceLabel || "Advance chance", (x) => x.next)}
+        <li>${trophyText}</li>
+        ${chanceLine("Invite chance", (x) => x.invite)}
+        ${chanceLine("Box chance", (x) => x.boxes)}
+      </ol>`;
   }
 
   // chart geometry; the slider below the chart is aligned to the plot area via CSS (pad.l/W, pad.r/W)
