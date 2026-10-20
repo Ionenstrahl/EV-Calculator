@@ -72,7 +72,7 @@
     if (p <= 0) return "never";
     const n = 1 / p;
     const every = n < 10 ? n.toFixed(1).replace(".", ",") : int.format(n);
-    return `${pct(p)} · 1 in ${every} events`;
+    return `1 in ${every} events`;
   }
 
   function rewardLabel(r) {
@@ -85,6 +85,7 @@
   // --- Settings --------------------------------------------------------------
 
   let winratePct = 55;
+  const hidden = new Set(); // ids of events toggled off in the legend
 
   function readSettings() {
     return {
@@ -101,6 +102,7 @@
       if (s.winrate != null) setWinrate(parseFloat(s.winrate));
       if (s.gemprice != null) $("gemprice").value = s.gemprice;
       if (s.boxprice != null) $("boxprice").value = s.boxprice;
+      if (Array.isArray(s.hidden)) s.hidden.forEach((id) => hidden.add(id));
     } catch (e) { /* storage unavailable */ }
   }
 
@@ -108,6 +110,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         winrate: winratePct, gemprice: $("gemprice").value, boxprice: $("boxprice").value,
+        hidden: [...hidden],
       }));
     } catch (e) { /* storage unavailable */ }
   }
@@ -116,24 +119,20 @@
 
   function renderCards(s) {
     $("cards").innerHTML = window.EVENTS.map((ev, i) => {
+      if (hidden.has(ev.id)) return "";
       const r = evaluate(ev, s.winrate, s.euroPerGem, s.boxEuro);
-      const roi = r.entryEuro > 0 ? r.net / r.entryEuro : 0;
       const rows = r.dist.map((prob, k) => `
         <tr><td>${k}</td><td>${pct(prob)}</td><td>${rewardLabel(ev.rewards[k] || {})}</td></tr>`).join("");
       return `
         <article class="card" style="--accent:${COLORS[i % COLORS.length]}">
           <h2>${ev.name}</h2>
           <p class="note">${ev.note}</p>
-          <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>
-          <p class="roi">ROI ${roi >= 0 ? "+" : ""}${pct(roi)} per entry</p>
-          <dl>
-            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>
-            <dt>Expected gems</dt><dd>${int.format(r.gems)}</dd>
-            ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}
+          <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>          <dl>
+            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>            ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}
             <dt>Expected return</dt><dd>${eur.format(r.returnEuro)}</dd>
             <dt>Trophy chance</dt><dd>${trophyLabel(r.dist[r.dist.length - 1])}</dd>
-            <dt>Break-even</dt><dd>${breakEvenLabel(breakEven(ev, s.euroPerGem, s.boxEuro))} game win rate</dd>
-          </dl>
+            ${ev.rewards.some((x) => x.boxes) ? `<dt>Box chance</dt><dd>${trophyLabel(
+              r.dist.reduce((sum, prob, k) => sum + ((ev.rewards[k] || {}).boxes ? prob : 0), 0))}</dd>` : ""}          </dl>
           <details>
             <summary>Win distribution</summary>
             <table><thead><tr><th>Wins</th><th>P</th><th>Reward</th></tr></thead><tbody>${rows}</tbody></table>
@@ -145,15 +144,16 @@
 
   // chart geometry; the slider below the chart is aligned to the plot area via CSS (pad.l/W, pad.r/W)
   const W = 640, H = 220, pad = { l: 64, r: 16, t: 12, b: 28 };
-  const xMin = 0.4, xMax = 0.7;
+  const xMin = 0.45, xMax = 0.75;
 
   function renderChart(s) {
     const xs = [];
     for (let x = xMin; x <= xMax + 1e-9; x += 0.005) xs.push(x);
 
-    const series = window.EVENTS.map((ev) =>
+    // series[i] is null for hidden events so colours stay tied to the event index
+    const series = window.EVENTS.map((ev) => hidden.has(ev.id) ? null :
       xs.map((x) => evaluate(ev, x, s.euroPerGem, s.boxEuro).net));
-    const all = series.flat();
+    const all = series.filter(Boolean).flat();
     let yMin = Math.min(0, ...all), yMax = Math.max(0, ...all);
     if (yMax - yMin < 1) { yMin -= 1; yMax += 1; }
     const span = yMax - yMin;
@@ -168,11 +168,13 @@
       grid += `<line class="grid${Math.abs(y) < 1e-9 ? " zero" : ""}" x1="${pad.l}" x2="${W - pad.r}" y1="${sy(y)}" y2="${sy(y)}"/>
         <text class="tick" x="${pad.l - 6}" y="${sy(y) + 4}" text-anchor="end">${int.format(y)} €</text>`;
     }
-    for (let x = xMin; x <= xMax + 1e-9; x += 0.05) {
-      grid += `<text class="tick" x="${sx(x)}" y="${H - pad.b + 18}" text-anchor="middle">${Math.round(x * 100)} %</text>`;
+    // x labels on whole multiples of 10 % only
+    for (let p = Math.ceil(xMin * 10 - 1e-9) * 10; p <= xMax * 100 + 1e-9; p += 10) {
+      grid += `<text class="tick" x="${sx(p / 100)}" y="${H - pad.b + 18}" text-anchor="middle">${p} %</text>`;
     }
 
     const lines = series.map((ys, i) => {
+      if (!ys) return "";
       const d = ys.map((y, j) => `${j ? "L" : "M"}${sx(xs[j]).toFixed(1)},${sy(y).toFixed(1)}`).join("");
       return `<path d="${d}" fill="none" stroke="${COLORS[i % COLORS.length]}" stroke-width="2.5"/>`;
     }).join("");
@@ -180,7 +182,7 @@
     // break-even: ring on the zero line plus a dashed drop line to the x-axis
     const breakEvens = window.EVENTS.map((ev) => breakEven(ev, s.euroPerGem, s.boxEuro));
     const beMarks = breakEvens.map((be, i) => {
-      if (be == null || be < xMin || be > xMax) return "";
+      if (!series[i] || be == null || be < xMin || be > xMax) return "";
       const c = COLORS[i % COLORS.length], bx = sx(be);
       return `<line class="be-line" x1="${bx}" x2="${bx}" y1="${sy(0)}" y2="${H - pad.b}" stroke="${c}"/>
         <circle class="be-ring" cx="${bx}" cy="${sy(0)}" r="5" stroke="${c}"/>`;
@@ -188,6 +190,7 @@
 
     const cx = sx(s.winrate);
     const dots = window.EVENTS.map((ev, i) => {
+      if (!series[i]) return "";
       const y = evaluate(ev, s.winrate, s.euroPerGem, s.boxEuro).net;
       return `<circle cx="${cx}" cy="${sy(y)}" r="4.5" fill="${COLORS[i % COLORS.length]}" class="dot"/>`;
     }).join("");
@@ -199,9 +202,12 @@
         ${beMarks}${lines}${dots}
       </svg>`;
 
-    $("legend").innerHTML = window.EVENTS.map((ev, i) =>
-      `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${ev.name}
-        <em>break-even ${breakEvenLabel(breakEvens[i])}</em></span>`).join("");
+    $("legend").innerHTML = window.EVENTS.map((ev, i) => {
+      const on = !hidden.has(ev.id);
+      return `<button type="button" class="toggle${on ? "" : " off"}" data-id="${ev.id}" aria-pressed="${on}"
+          title="${on ? "Hide" : "Show"} ${ev.name}"><i style="background:${COLORS[i % COLORS.length]}"></i>${ev.name}
+        <em>break-even ${breakEvenLabel(breakEvens[i])}</em></button>`;
+    }).join("");
   }
 
   // Game win rate at which net EV = 0, or null if the event is never profitable.
@@ -264,6 +270,15 @@
     if (delta == null) return;
     e.preventDefault();
     setWinrate(winratePct + delta);
+    render();
+  });
+
+  // legend entries toggle events in the chart and the cards
+  $("legend").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-id]");
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (hidden.has(id)) hidden.delete(id); else hidden.add(id);
     render();
   });
 
