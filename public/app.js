@@ -67,6 +67,14 @@
   const pct = (x, d = 1) => (x * 100).toFixed(d).replace(".", ",") + " %";
   const signedEur = (x) => (x >= 0 ? "+" : "−") + eur.format(Math.abs(x));
 
+  // trophy = max wins; expected number of events per trophy is 1 / P (geometric distribution)
+  function trophyLabel(p) {
+    if (p <= 0) return "never";
+    const n = 1 / p;
+    const every = n < 10 ? n.toFixed(1).replace(".", ",") : int.format(n);
+    return `${pct(p)} · 1 in ${every} events`;
+  }
+
   function rewardLabel(r) {
     const parts = [];
     if (r.gems) parts.push(int.format(r.gems) + " gems");
@@ -123,6 +131,7 @@
             <dt>Expected gems</dt><dd>${int.format(r.gems)}</dd>
             ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}
             <dt>Expected return</dt><dd>${eur.format(r.returnEuro)}</dd>
+            <dt>Trophy chance</dt><dd>${trophyLabel(r.dist[r.dist.length - 1])}</dd>
             <dt>Break-even</dt><dd>${breakEvenLabel(breakEven(ev, s.euroPerGem, s.boxEuro))} game win rate</dd>
           </dl>
           <details>
