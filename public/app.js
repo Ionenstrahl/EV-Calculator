@@ -123,6 +123,7 @@
             <dt>Expected gems</dt><dd>${int.format(r.gems)}</dd>
             ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}
             <dt>Expected return</dt><dd>${eur.format(r.returnEuro)}</dd>
+            <dt>Break-even</dt><dd>${breakEvenLabel(breakEven(ev, s.euroPerGem, s.boxEuro))} game win rate</dd>
           </dl>
           <details>
             <summary>Win distribution</summary>
@@ -167,6 +168,15 @@
       return `<path d="${d}" fill="none" stroke="${COLORS[i % COLORS.length]}" stroke-width="2.5"/>`;
     }).join("");
 
+    // break-even: ring on the zero line plus a dashed drop line to the x-axis
+    const breakEvens = window.EVENTS.map((ev) => breakEven(ev, s.euroPerGem, s.boxEuro));
+    const beMarks = breakEvens.map((be, i) => {
+      if (be == null || be < xMin || be > xMax) return "";
+      const c = COLORS[i % COLORS.length], bx = sx(be);
+      return `<line class="be-line" x1="${bx}" x2="${bx}" y1="${sy(0)}" y2="${H - pad.b}" stroke="${c}"/>
+        <circle class="be-ring" cx="${bx}" cy="${sy(0)}" r="5" stroke="${c}"/>`;
+    }).join("");
+
     const cx = sx(s.winrate);
     const dots = window.EVENTS.map((ev, i) => {
       const y = evaluate(ev, s.winrate, s.euroPerGem, s.boxEuro).net;
@@ -177,12 +187,29 @@
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Net EV in euro by game win rate">
         ${grid}
         <line class="marker" x1="${cx}" x2="${cx}" y1="${pad.t}" y2="${H - pad.b}"/>
-        ${lines}${dots}
+        ${beMarks}${lines}${dots}
       </svg>`;
 
     $("legend").innerHTML = window.EVENTS.map((ev, i) =>
-      `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${ev.name}</span>`).join("");
+      `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${ev.name}
+        <em>break-even ${breakEvenLabel(breakEvens[i])}</em></span>`).join("");
   }
+
+  // Game win rate at which net EV = 0, or null if the event is never profitable.
+  // Net EV rises with win rate (rewards never shrink with more wins), so bisection works.
+  function breakEven(ev, euroPerGem, boxEuro) {
+    const net = (p) => evaluate(ev, p, euroPerGem, boxEuro).net;
+    let lo = 0, hi = 1;
+    if (net(hi) < 0) return null;
+    if (net(lo) >= 0) return 0;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (net(mid) < 0) lo = mid; else hi = mid;
+    }
+    return hi;
+  }
+
+  const breakEvenLabel = (be) => (be == null ? "never" : pct(be));
 
   function niceStep(raw) {
     const mag = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -236,5 +263,5 @@
   render();
 
   // exposed for console sanity checks
-  window.mtgaEv = { winDistribution, fixedMatchDistribution, evaluate };
+  window.mtgaEv = { winDistribution, fixedMatchDistribution, evaluate, breakEven };
 })();
