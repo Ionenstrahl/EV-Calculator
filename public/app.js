@@ -66,6 +66,7 @@
   const int = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
   const pct = (x, d = 1) => (x * 100).toFixed(d).replace(".", ",") + " %";
   const signedEur = (x) => (x >= 0 ? "+" : "−") + eur.format(Math.abs(x));
+  const signedGems = (x) => (Math.round(x) >= 0 ? "+" : "−") + int.format(Math.abs(x)) + " gems";
 
   // trophy = max wins; expected number of events per trophy is 1 / P (geometric distribution)
   function trophyLabel(p) {
@@ -128,8 +129,7 @@
           <h2>${ev.name}</h2>
           <p class="note">${ev.note}</p>
           <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>          <dl>
-            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>            ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}
-            <dt>Expected return</dt><dd>${eur.format(r.returnEuro)}</dd>
+            <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>            ${ev.rewards.some((x) => x.boxes) ? `<dt>Expected boxes</dt><dd>${r.boxes.toFixed(3).replace(".", ",")}</dd>` : ""}            ${ev.rewards.some((x) => x.boxes) ? "" : `<dt>EV in gems</dt><dd>${signedGems(r.gems - ev.entryGems)}</dd>`}
             <dt>Trophy chance</dt><dd>${trophyLabel(r.dist[r.dist.length - 1])}</dd>
             ${ev.rewards.some((x) => x.boxes) ? `<dt>Box chance</dt><dd>${trophyLabel(
               r.dist.reduce((sum, prob, k) => sum + ((ev.rewards[k] || {}).boxes ? prob : 0), 0))}</dd>` : ""}          </dl>
