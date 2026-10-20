@@ -218,7 +218,7 @@
 
     const rows = r.dist.map((prob, k) => {
       const rw = ev.rewards[k] || {};
-      return `<tr><td>${k}</td><td>${pct(prob, 2)}</td><td>${rewardLabel(rw, p, s)}</td></tr>`;
+      return `<tr><td>${k}</td><td>${Math.round(prob * 100)}%</td><td>${rewardLabel(rw, p, s)}</td></tr>`;
     }).join("");
 
     const entryText = ev.entryLabel

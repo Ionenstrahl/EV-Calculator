@@ -109,6 +109,7 @@ th:nth-child(2), td:nth-child(2) { text-align: right; padding-right: 12px; }
 .calc li { margin-bottom: 4px; }
 .calc b { color: var(--text); }
 .calc-table tfoot td { font-weight: 600; border-bottom: 0; }
+.calc-table tbody td:nth-child(2) { white-space: nowrap; }
 .src { margin: 10px 0 0; font-size: 0.8rem; }
 
 .chart-wrap {
