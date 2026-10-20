@@ -40,7 +40,7 @@ a { color: var(--accent-ui); }
 
 .controls {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin: 20px 0;
   padding: 16px;
@@ -87,12 +87,18 @@ th:nth-child(2), td:nth-child(2) { text-align: right; padding-right: 12px; }
 .src { margin: 10px 0 0; font-size: 0.8rem; }
 
 .chart-wrap {
-  margin-top: 20px;
+  max-width: 760px;
+  margin: 0 auto 20px;
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
 }
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.wr { display: flex; flex-direction: column; align-items: flex-end; }
+.wr strong { font-size: 1.2rem; color: var(--accent-ui); }
+#chart { touch-action: none; cursor: ew-resize; }
+#chart:focus-visible { outline: 2px solid var(--accent-ui); outline-offset: 4px; border-radius: 4px; }
 #chart svg { width: 100%; height: auto; display: block; margin-top: 8px; }
 .grid { stroke: var(--grid); stroke-width: 1; }
 .grid.zero { stroke: var(--muted); stroke-width: 1.5; }
@@ -105,7 +111,6 @@ th:nth-child(2), td:nth-child(2) { text-align: right; padding-right: 12px; }
 footer { margin-top: 24px; font-size: 0.85rem; }
 
 @media (max-width: 640px) {
-  .controls { grid-template-columns: 1fr 1fr; }
-  .control.wide { grid-column: 1 / -1; }
+  .wr { align-items: flex-start; }
   h1 { font-size: 1.5rem; }
 }
