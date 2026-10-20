@@ -47,7 +47,15 @@
 
   // --- Valuation -------------------------------------------------------------
 
-  // prices = { euroPerGem, boxEuro, euroPerUsd }
+  // gold is valued at the Premier Draft entry ratio (10,000 gold = 1,500 gems)
+  const premier = window.EVENTS.find((ev) => ev.id === "premier");
+  const GOLD_PER_GEM = premier.entryGold / premier.entryGems;
+
+  // entry cost in gem-equivalents; payGold = ids of events entered with gold
+  const entryGemsFor = (ev, prices) =>
+    prices.payGold && prices.payGold.has(ev.id) ? ev.entryGold / GOLD_PER_GEM : (ev.entryGems || 0);
+
+  // prices = { euroPerGem, boxEuro, euroPerUsd (after tax), payGold }
   function rewardEuro(r, p, prices) {
     return (r.gems || 0) * prices.euroPerGem + (r.boxes || 0) * prices.boxEuro +
       (r.usd || 0) * prices.euroPerUsd + (r.next ? evaluate(r.next, p, prices).returnEuro : 0);
@@ -61,7 +69,7 @@
       gems += prob * (r.gems || 0);
       returnEuro += prob * rewardEuro(r, p, prices);
     });
-    const entryEuro = (ev.entryGems || 0) * prices.euroPerGem;
+    const entryEuro = entryGemsFor(ev, prices) * prices.euroPerGem;
     return { dist, gems, entryEuro, returnEuro, net: returnEuro - entryEuro };
   }
 
@@ -107,13 +115,16 @@
 
   let winratePct = 55;
   const hidden = new Set(); // ids of events toggled off in the legend
+  const payGold = new Set(); // ids of events (with a gem/gold toggle) entered with gold
+  const cash = { taxPct: "30", usdRate: "0.9" }; // cash prize settings, edited on cards with US$ prizes
 
   function readSettings() {
     return {
       winrate: winratePct / 100,
       euroPerGem: (parseFloat($("gemprice").value) || 0) / 10000,
       boxEuro: parseFloat($("boxprice").value) || 0,
-      euroPerUsd: parseFloat($("usdrate").value) || 0,
+      euroPerUsd: (parseFloat(cash.usdRate) || 0) * (1 - (parseFloat(cash.taxPct) || 0) / 100),
+      payGold,
     };
   }
 
@@ -124,8 +135,9 @@
       if (s.winrate != null) setWinrate(parseFloat(s.winrate));
       if (s.gemprice != null) $("gemprice").value = s.gemprice;
       if (s.boxprice != null) $("boxprice").value = s.boxprice;
-      if (s.usdrate != null) $("usdrate").value = s.usdrate;
+      if (s.cash) Object.assign(cash, s.cash);
       if (Array.isArray(s.hidden)) s.hidden.forEach((id) => hidden.add(id));
+      if (Array.isArray(s.payGold)) s.payGold.forEach((id) => payGold.add(id));
     } catch (e) { /* storage unavailable */ }
   }
 
@@ -133,7 +145,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         winrate: winratePct, gemprice: $("gemprice").value, boxprice: $("boxprice").value,
-        usdrate: $("usdrate").value, hidden: [...hidden],
+        cash, hidden: [...hidden], payGold: [...payGold],
       }));
     } catch (e) { /* storage unavailable */ }
   }
@@ -153,9 +165,19 @@
           <p class="note">${ev.note}</p>
           <div class="net ${r.net >= 0 ? "pos" : "neg"}">${signedEur(r.net)}</div>
           <dl>
-            ${ev.entryLabel ? `<dt>Entry</dt><dd>${ev.entryLabel}</dd>` : `
+            ${ev.entryLabel ? "" : ev.payToggle ? `
+            <dt>Pay with</dt><dd><span class="seg" role="group" aria-label="Entry currency">${["gems", "gold"].map((c) =>
+              `<button type="button" data-pay="${ev.id}" data-currency="${c}" aria-pressed="${payGold.has(ev.id) === (c === "gold")}">${c === "gems" ? "Gems" : "Gold"}</button>`).join("")}</span></dd>
+            <dt>Entry</dt><dd>${payGold.has(ev.id)
+              ? `${int.format(ev.entryGold)} gold · ≈ ${eur.format(r.entryEuro)}`
+              : `${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}`}</dd>` : `
             <dt>Entry</dt><dd>${int.format(ev.entryGems)} gems · ${eur.format(r.entryEuro)}</dd>
-            <dt>Gold entry</dt><dd>${ev.entryGold ? int.format(ev.entryGold) + " gold" : "gems only"}</dd>`}
+            ${ev.entryGold ? "" : `<dt>Gold entry</dt><dd>gems only</dd>`}`}
+            ${ev.rewards.some((x) => x.usd) ? `
+            <dt><label for="tax-${ev.id}">Taxes</label></dt>
+            <dd><input class="mini" type="number" id="tax-${ev.id}" data-cash="taxPct" min="0" max="100" step="1" value="${cash.taxPct}"> %</dd>
+            <dt><label for="usd-${ev.id}">1 $ in €</label></dt>
+            <dd><input class="mini" type="number" id="usd-${ev.id}" data-cash="usdRate" min="0" step="0.01" value="${cash.usdRate}"> €</dd>` : ""}
             ${gemsOnly(ev) ? `<dt>EV in gems</dt><dd>${signedGems(r.gems - ev.entryGems)}</dd>` : ""}
             ${ev.rewards.some((x) => x.next) ? `<dt>${ev.advanceLabel || "Advance chance"}</dt><dd>${trophyLabel(probWhere((x) => x.next))}</dd>` : ""}
             <dt>Trophy chance</dt><dd>${trophyLabel(trophyProb(ev, s.winrate, r.dist))}</dd>
@@ -166,6 +188,7 @@
             <summary>Win distribution</summary>
             <table><thead><tr><th>Wins</th><th>P</th><th>Reward</th></tr></thead><tbody>${rows}</tbody></table>
           </details>
+          ${ev.payToggle && payGold.has(ev.id) ? `<p class="src">Gold valued at the Premier Draft rate (${GOLD_PER_GEM.toFixed(2).replace(".", ",")} gold per gem).</p>` : ""}
           <p class="src"><a href="${ev.source}" target="_blank" rel="noopener">Source</a> · ${ev.updated}</p>
         </article>`;
     }).join("");
@@ -302,6 +325,23 @@
     render();
   });
 
+  // gems/gold switch on cards of events with payToggle
+  $("cards").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-pay]");
+    if (!btn) return;
+    if (btn.dataset.currency === "gold") payGold.add(btn.dataset.pay); else payGold.delete(btn.dataset.pay);
+    render();
+  });
+
+  // cash inputs live inside a card, which is rebuilt on render; "change" (Enter, blur, spinner)
+  // avoids rebuilding the input while you are still typing in it
+  $("cards").addEventListener("change", (e) => {
+    const key = e.target.dataset && e.target.dataset.cash;
+    if (!key) return;
+    cash[key] = e.target.value;
+    render();
+  });
+
   // legend entries toggle events in the chart and the cards
   $("legend").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-id]");
@@ -312,7 +352,7 @@
   });
 
   loadSettings();
-  ["gemprice", "boxprice", "usdrate"].forEach((id) => $(id).addEventListener("input", render));
+  ["gemprice", "boxprice"].forEach((id) => $(id).addEventListener("input", render));
   render();
 
   // exposed for console sanity checks

@@ -70,6 +70,7 @@ window.EVENTS = [
     name: "ALC Qualifier Draft 1",
     entryGems: 5000,
     entryGold: 25000,
+    payToggle: true, // card shows a gems/gold switch; gold is valued at the Premier Draft ratio
     format: "bo1",
     maxWins: 7,
     maxLosses: 2,
