@@ -14,7 +14,8 @@ Packs are not counted in the EV.
 Open `public/index.html` in a browser. No build step is needed.
 
 ## Deploy
-Push to the default branch on GitLab. The `pages` job in `.gitlab-ci.yml` publishes `public/`.
+Push to `main` on GitHub. The workflow `.github/workflows/pages.yml` publishes `public/` to GitHub Pages
+(one-time: Settings → Pages → Source: **GitHub Actions**).
 
 ## Updating event data
 Entry fees and payouts change by set. Edit `public/events.js`:
