@@ -11,14 +11,14 @@ Inputs:
 Packs are not counted in the EV.
 
 ## Run locally
-Open `public/index.html` in a browser. No build step is needed.
+Open `index.html` in a browser. No build step is needed.
 
 ## Deploy
-Push to `main` on GitHub. The workflow `.github/workflows/pages.yml` publishes `public/` to GitHub Pages
-(one-time: Settings → Pages → Source: **GitHub Actions**).
+Push to `main` on GitHub. GitHub Pages serves the repo root
+(one-time: Settings → Pages → Source: **Deploy from a branch**, `main` / `/ (root)`).
 
 ## Updating event data
-Entry fees and payouts change by set. Edit `public/events.js`:
+Entry fees and payouts change by set. Edit `events.js`:
 - `entryGems`: entry fee in gems
 - `format`: `"bo1"` or `"bo3"` (Bo3 uses the derived match win rate)
 - `maxWins` + `maxLosses` for "play until X wins or Y losses" events, or `fixedMatches` for a fixed number of matches
